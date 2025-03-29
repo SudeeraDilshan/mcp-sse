@@ -1,84 +1,57 @@
-# from mcp.server.sse import SseServerTransport
-# from starlette.applications import Starlette
-# from starlette.routing import Route
-# from mcp.server import Server
-
-# app = Server("example-server")
-# sse = SseServerTransport("/messages/")
-
-# @app.call_tool()
-# async def add_numbers(a: int, b: int) -> str:
-#     """Add two numbers together and return the result.
-    
-#     Args:
-#         a: First number
-#         b: Second number
-        
-#     Returns:
-#         The sum of the two numbers
-#     """
-#     return f"addition is fun! ${a + b}"
-
-# async def handle_sse(scope, receive, send):
-#     async with sse.connect_sse(scope, receive, send) as streams:
-#         await app.run(streams[0], streams[1], app.create_initialization_options())
-
-# async def handle_messages(scope, receive, send):
-#     await sse.handle_post_message(scope, receive, send)
-
-# starlette_app = Starlette(
-#     debug=True,
-#     routes=[
-#         Route("/sse", endpoint=handle_sse),
-#         Route("/messages/", endpoint=handle_messages, methods=["POST"]),
-#     ]
-# )
-
-# if __name__ == "__main__":
-#     import uvicorn
-#     uvicorn.run(starlette_app, host="0.0.0.0", port=8000)
-
-
-
 from mcp.server.sse import SseServerTransport
 from starlette.applications import Starlette
-from starlette.routing import Route,Mount
+from starlette.routing import Route, Mount
 from mcp.server import Server
 import mcp.types as types
 import logging
 
 # Set up logging
-logging.basicConfig(level=logging.DEBUG,filename="server.log", filemode="w",)
+logging.basicConfig(level=logging.DEBUG, filename="server.log", filemode="w")
 logger = logging.getLogger(__name__)
 
 app = Server("example-server")
 sse = SseServerTransport("/messages/")
 
 @app.call_tool()
-async def get_red_value(a: int) -> str:
-    """get the red value of a given integer.
+async def get_red_value(
+    name: str, arguments: dict
+) -> list[types.TextContent]:
+    logger.info(f"Tool called: {name} with arguments: {arguments}")
+    if name != "get_red_value":
+        logger.error(f"Unknown tool: {name}")
+        raise ValueError(f"Unknown tool: {name}")
+    if "number" not in arguments:
+        logger.error("Missing required argument 'number'")
+        raise ValueError("Missing required argument 'number'")
     
-    Args:
-        a: number
-        
-    Returns:
-        A message with the red value of the number
-    """
-    # logger.info(f"Adding numbers: {a} + {b}")
-    return f"red value is is fun! ${a + 50}"
+    number = arguments["number"]
+    logger.info(f"Calculating red value for: {number}")
+    return [types.TextContent(type="text", text=f"red value is fun! ${number + 50}")]
 
 @app.call_tool()
-async def greet(name: str) -> str:
+async def greet(
+    name: str, arguments: dict
+) -> list[types.TextContent]:
     """Greet the user with their name.
     
     Args:
-        name: The name of the user
+        name: The name of the tool
+        arguments: Dictionary containing the arguments for the tool
         
     Returns:
-        A greeting message
+        A list containing a greeting message as TextContent
     """
-    logger.info(f"Greeting user: {name}")
-    return f"Hello pissu kollooo, {name}!"
+    logger.info(f"Tool called: {name} with arguments: {arguments}")
+    if name != "greet":
+        logger.error(f"Unknown tool: {name}")
+        raise ValueError(f"Unknown tool: {name}")
+    if "name" not in arguments:
+        logger.error("Missing required argument 'name'")
+        raise ValueError("Missing required argument 'name'")
+    
+    user_name = arguments["name"]
+    logger.info(f"Greeting user: {user_name}")
+    return [types.TextContent(type="text", text=f"Hello, {user_name}! Welcome to the server.")]
 
 @app.list_tools()
 async def list_tools() -> list[types.Tool]:
@@ -86,12 +59,12 @@ async def list_tools() -> list[types.Tool]:
     return [
         types.Tool(
             name="get_red_value",  # This should match your function name
-            description="Get the red value of a given integer",
+            description="Get the red value of a given number",
             inputSchema={
                 "type": "object",
-                "required": ["a"],
+                "required": ["number"],
                 "properties": {
-                    "a": {
+                    "number": {
                         "type": "integer",
                         "description": "The number to get the red value for",
                     }
@@ -129,7 +102,7 @@ async def handle_sse(request):
 async def handle_messages(request):
     try:
         logger.info("Message received")
-        await sse.handle_post_message(request.scope,request.receive, request._send)
+        await sse.handle_post_message(request.scope, request.receive, request._send)
     except Exception as e:
         logger.error(f"Error handling message: {e}", exc_info=True)
 
@@ -149,7 +122,6 @@ starlette_app = Starlette(
     routes=[
         Route("/sse", endpoint=handle_sse),
         Mount("/messages/", app=sse.handle_post_message),
-        # Route("/messages", endpoint=handle_messages, methods=["POST"]),
     ]
 )
 
