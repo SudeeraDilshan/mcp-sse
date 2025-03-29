@@ -4,6 +4,7 @@ from starlette.routing import Route, Mount
 from mcp.server import Server
 import mcp.types as types
 import logging
+import aiohttp
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG, filename="server.log", filemode="w")
@@ -12,75 +13,150 @@ logger = logging.getLogger(__name__)
 app = Server("example-server")
 sse = SseServerTransport("/messages/")
 
-@app.call_tool()
-async def get_red_value(
-    name: str, arguments: dict
-) -> list[types.TextContent]:
-    logger.info(f"Tool called: {name} with arguments: {arguments}")
-    if name != "get_red_value":
-        logger.error(f"Unknown tool: {name}")
-        raise ValueError(f"Unknown tool: {name}")
-    if "number" not in arguments:
-        logger.error("Missing required argument 'number'")
-        raise ValueError("Missing required argument 'number'")
+async def fetch_website(url: str) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
+    """Fetch content from a website URL."""
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as response:
+                if response.status == 200:
+                    content = await response.text()
+                    return [types.TextContent(type="text", text=f"Content from {url}:\n{content[:1000]}...")]
+                else:
+                    return [types.TextContent(type="text", text=f"Failed to fetch {url}. Status code: {response.status}")]
+    except Exception as e:
+        logger.error(f"Error fetching {url}: {e}", exc_info=True)
+        return [types.TextContent(type="text", text=f"Error fetching {url}: {str(e)}")]
+
+async def get_synonyms(word: str) -> list[str]:
+    """Get synonyms for a given word using a predefined dictionary."""
+    # Simple dictionary of synonyms for common words
+    synonym_dict = {
+        "happy": ["joyful", "cheerful", "content", "pleased", "delighted"],
+        "sad": ["unhappy", "sorrowful", "dejected", "gloomy", "depressed"],
+        "good": ["excellent", "fine", "great", "positive", "satisfactory"],
+        "bad": ["poor", "awful", "terrible", "negative", "substandard"],
+        "big": ["large", "huge", "enormous", "massive", "gigantic"],
+        "small": ["tiny", "little", "miniature", "compact", "microscopic"],
+        # Add more words as needed
+    }
     
-    number = arguments["number"]
-    logger.info(f"Calculating red value for: {number}")
-    return [types.TextContent(type="text", text=f"red value is fun! ${number + 50}")]
+    word = word.lower()
+    if word in synonym_dict:
+        # Return only 3 synonyms as requested
+        return synonym_dict[word][:3]
+    else:
+        return ["No synonyms found"]
+
+async def get_description(subject: str) -> str:
+    """Get a short description about a given object or concept."""
+    description_dict = {
+        "computer": "An electronic device for storing and processing data according to instructions given to it.",
+        "internet": "A global computer network providing information and communication facilities.",
+        "cloud computing": "The practice of using remote servers on the internet to store, manage, and process data.",
+        "artificial intelligence": "The simulation of human intelligence processes by machines, especially computer systems.",
+        "smartphone": "A mobile phone that performs many of the functions of a computer.",
+        "blockchain": "A system in which a record of transactions is maintained across several computers linked in a peer-to-peer network.",
+        "robot": "A machine capable of carrying out a complex series of actions automatically.",
+        "virtual reality": "Computer-generated simulation of a three-dimensional environment that can be interacted with.",
+        "neural network": "A computing system inspired by the biological neural networks that constitute animal brains.",
+        "database": "An organized collection of data stored and accessed electronically.",
+    }
+    
+    subject = subject.lower()
+    if subject in description_dict:
+        return description_dict[subject]
+    else:
+        return f"Sorry, I don't have information about '{subject}'."
 
 @app.call_tool()
-async def greet(
+async def fetch_tool(
     name: str, arguments: dict
-) -> list[types.TextContent]:
-    """Greet the user with their name.
-    
-    Args:
-        name: The name of the tool
-        arguments: Dictionary containing the arguments for the tool
-        
-    Returns:
-        A list containing a greeting message as TextContent
-    """
-    logger.info(f"Tool called: {name} with arguments: {arguments}")
-    if name != "greet":
+) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
+    logger.debug(f"Tool called: {name} with arguments: {arguments}")
+    if name != "fetch":
         logger.error(f"Unknown tool: {name}")
         raise ValueError(f"Unknown tool: {name}")
-    if "name" not in arguments:
-        logger.error("Missing required argument 'name'")
-        raise ValueError("Missing required argument 'name'")
+    if "url" not in arguments:
+        logger.error("Missing required argument 'url'")
+        raise ValueError("Missing required argument 'url'")
+    return await fetch_website(arguments["url"])
+
+@app.call_tool()
+async def get_synonyms_tool(
+    name: str, arguments: dict
+) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
+    logger.info(f"Tool called: {name} with arguments: {arguments}")
+    if name != "get_synonyms":
+        logger.error(f"Unknown tool: {name}")
+        raise ValueError(f"Unknown tool: {name}")
+    if "word" not in arguments:
+        logger.error("Missing required argument 'word'")
+        raise ValueError("Missing required argument 'word'")
     
-    user_name = arguments["name"]
-    logger.info(f"Greeting user: {user_name}")
-    return [types.TextContent(type="text", text=f"Hello, {user_name}! Welcome to the server.")]
+    word = arguments["word"]
+    logger.info(f"Finding synonyms for: {word}")
+    synonyms = await get_synonyms(word)
+    return [types.TextContent(type="text", text=f"Synonyms for '{word}': {', '.join(synonyms)}")]
+
+@app.call_tool()
+async def describe_object(
+    name: str, arguments: dict
+) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
+    logger.info(f"Tool called: {name} with arguments: {arguments}")
+    if name != "describe":
+        logger.error(f"Unknown tool: {name}")
+        raise ValueError(f"Unknown tool: {name}")
+    if "subject" not in arguments:
+        logger.error("Missing required argument 'subject'")
+        raise ValueError("Missing required argument 'subject'")
+    
+    subject = arguments["subject"]
+    logger.info(f"Getting description for: {subject}")
+    description = await get_description(subject)
+    return [types.TextContent(type="text", text=description)]
 
 @app.list_tools()
 async def list_tools() -> list[types.Tool]:
     logger.debug("Listing available tools.")
     return [
         types.Tool(
-            name="get_red_value",  # This should match your function name
-            description="Get the red value of a given number",
+            name="fetch",
+            description="Fetches a website and returns its content",
             inputSchema={
                 "type": "object",
-                "required": ["number"],
+                "required": ["url"],
                 "properties": {
-                    "number": {
-                        "type": "integer",
-                        "description": "The number to get the red value for",
+                    "url": {
+                        "type": "string",
+                        "description": "URL to fetch",
                     }
                 },
             },
         ),
         types.Tool(
-            name="greet",
-            description="Greet the user with their name",
+            name="get_synonyms",
+            description="Get 3 synonyms for a given word",
             inputSchema={
                 "type": "object",
-                "required": ["name"],
+                "required": ["word"],
                 "properties": {
-                    "name": {
+                    "word": {
                         "type": "string",
-                        "description": "The name of the user",
+                        "description": "The word to find synonyms for",
+                    }
+                },
+            },
+        ),
+        types.Tool(
+            name="describe",
+            description="Get a short description about an object or concept",
+            inputSchema={
+                "type": "object",
+                "required": ["subject"],
+                "properties": {
+                    "subject": {
+                        "type": "string",
+                        "description": "The object or concept to describe",
                     }
                 },
             },
